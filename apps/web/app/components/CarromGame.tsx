@@ -29,6 +29,19 @@ const CarromGame = () => {
   const [strikerPosition, setStrikerPosition] = useState(50); // 0-100 percentage position
   const isRemoteUpdateRef = useRef(false); // Flag to prevent infinite socket loops
   const isOpponentPlayingRef = useRef(false);
+  const setCoinsRef = useRef(false);
+  
+  // Host/Client role management
+  const [isHost, setIsHost] = useState(false);
+  const [playerCount, setPlayerCount] = useState(0);
+  const isHostRef = useRef(false);
+  const physicsUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Turn management
+  const [currentHostId, setCurrentHostId] = useState<string | null>(null);
+  const [playersList, setPlayersList] = useState<string[]>([]);
+  const [isMyTurn, setIsMyTurn] = useState(false);
+  const turnEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Score management
   const { score, addPoints, resetScore } = useScoreManager({
@@ -37,26 +50,29 @@ const CarromGame = () => {
     },
   });
 
-  // Game state management
+    // Game state management
   const { checkAllStopped, handleCoinPocketed, resetStriker } =
     useGameStateManager({
       onAllStopped: () => {
-        console.log("All coins stopped - resetting striker");
-        // Reset striker position to center (50%) using our existing function
-        setTimeout(() => {
-          setStrikerPosition(50);
-          // Force update striker position after state update
-          setTimeout(() => {
-            updateStrikerPosition(50);
-          }, 50);
-        }, 200);
+        console.log("All coins stopped - turn ended");
+        // Only the current HOST can end the turn
+        if (isHostRef.current && isMyTurn) {
+          // Clear any existing timeout
+          if (turnEndTimeoutRef.current) {
+            clearTimeout(turnEndTimeoutRef.current);
+          }
+          
+          // Add a small delay to ensure physics have fully settled
+          turnEndTimeoutRef.current = setTimeout(() => {
+            console.log("Ending turn and switching HOST");
+            socket?.emit("endTurn");
+          }, 500);
+        }
       },
       onCoinPocketed: (coinType) => {
+        console.log("Coin pocketed:", coinType);
         if (coinType !== "striker") {
-          const points = addPoints(coinType);
-          console.log(`${coinType} coin pocketed! +${points} points`);
-        } else {
-          console.log("Striker pocketed - penalty");
+          addPoints(coinType);
         }
       },
     });
@@ -145,11 +161,114 @@ const CarromGame = () => {
     isOpponentPlayingRef.current = false;
   };
 
+  // Physics update functions for authoritative server
+  const startPhysicsUpdates = () => {
+    if (physicsUpdateIntervalRef.current) {
+      clearInterval(physicsUpdateIntervalRef.current);
+    }
+    
+    // Send physics updates every 50ms (20 FPS)
+    physicsUpdateIntervalRef.current = setInterval(() => {
+      if (!socket || !isHostRef.current) return;
+      
+      // Collect all coin positions and velocities
+      const physicsData = coinsRef.current.map(coin => ({
+        id: (coin.body as any).coinId,
+        type: coin.type,
+        position: { x: coin.body.position.x, y: coin.body.position.y },
+        velocity: { x: coin.body.velocity.x, y: coin.body.velocity.y },
+        angle: coin.body.angle,
+        angularVelocity: coin.body.angularVelocity,
+      }));
+      
+      socket.emit("physicsUpdate", { coins: physicsData });
+    }, 50);
+  };
+  
+  const stopPhysicsUpdates = () => {
+    if (physicsUpdateIntervalRef.current) {
+      clearInterval(physicsUpdateIntervalRef.current);
+      physicsUpdateIntervalRef.current = null;
+    }
+  };
+  
+  const applyPhysicsUpdate = (data: any) => {
+    if (isHostRef.current) return; // Host doesn't apply external updates
+    
+    // Transform coordinates for opponent perspective
+    const BOARD_SIZE = 500;
+    const BOARD_OFFSET_X = (800 - BOARD_SIZE) / 2;
+    const BOARD_OFFSET_Y = 50;
+    const boardCenterX = BOARD_OFFSET_X + BOARD_SIZE / 2;
+    const boardCenterY = BOARD_OFFSET_Y + BOARD_SIZE / 2;
+    
+    data.coins.forEach((coinData: any) => {
+      // Match coins by unique ID instead of just type
+      const localCoin = coinsRef.current.find(c => (c.body as any).coinId === coinData.id);
+      if (localCoin) {
+        // Transform position and velocity for opponent perspective
+        const transformedPos = {
+          x: 2 * boardCenterX - coinData.position.x,
+          y: 2 * boardCenterY - coinData.position.y,
+        };
+        
+        const transformedVel = {
+          x: -coinData.velocity.x,
+          y: -coinData.velocity.y,
+        };
+        
+        // Apply the transformed physics state
+        Matter.Body.setPosition(localCoin.body, transformedPos);
+        Matter.Body.setVelocity(localCoin.body, transformedVel);
+        Matter.Body.setAngle(localCoin.body, coinData.angle);
+        Matter.Body.setAngularVelocity(localCoin.body, coinData.angularVelocity);
+      }
+    });
+  };
+
   useEffect(() => {
     socket = io("http://localhost:8080");
 
     socket.on("connect", () => {
       console.log("Connected:", socket.id);
+    });
+
+    // Handle role assignment
+    socket.on("assignRole", (data: any) => {
+      console.log("Assigned role:", data.role);
+      const hostRole = data.role === "host";
+      setIsHost(hostRole);
+      isHostRef.current = hostRole;
+      setIsMyTurn(hostRole); // Initially, the HOST starts the turn
+      
+      if (hostRole) {
+        console.log("This client is the HOST - running authoritative physics");
+        startPhysicsUpdates();
+      } else {
+        console.log("This client is a CLIENT - receiving physics updates");
+      }
+    });
+
+    // Handle player count updates
+    socket.on("playerCount", (data: any) => {
+      setPlayerCount(data.count);
+      console.log("Player count:", data.count);
+    });
+
+    // Handle turn info updates
+    socket.on("turnInfo", (data: any) => {
+      setCurrentHostId(data.currentHost);
+      setPlayersList(data.playersList);
+      setIsMyTurn(socket.id === data.currentHost);
+      console.log("Turn info updated:", data);
+      console.log("Is my turn:", socket.id === data.currentHost);
+    });
+
+    // Handle physics updates (clients only)
+    socket.on("physicsUpdate", (data: any) => {
+      if (!isHostRef.current) {
+        applyPhysicsUpdate(data);
+      }
     });
 
     const canvas = canvasRef.current;
@@ -210,7 +329,32 @@ const CarromGame = () => {
       console.log("Received striker adjustment:", data.position);
       isRemoteUpdateRef.current = true; // Set flag to prevent emitting
       isOpponentPlayingRef.current = true;
+
+      // Mirror coins only once when first receiving opponent's move
+      if (!setCoinsRef.current) {
+        setCoinsRef.current = true;
+        // Need to wait for game objects to be ready
+        setTimeout(() => {
+          if ((window as any).mirrorCoinsPosition) {
+            (window as any).mirrorCoinsPosition();
+            console.log("Coins mirrored for opponent view");
+          }
+        }, 100);
+      }
+
       setStrikerPosition(data.position);
+    });
+
+    socket.on("strikerShot", (data: any) => {
+      console.log("Received striker shot:", data);
+
+      // Find the opponent's striker (mirrored position)
+      const striker = coinsRef.current.find((coin) => coin.type === "striker");
+      if (striker) {
+        // Apply the received velocity to opponent's striker
+        Matter.Body.setVelocity(striker.body, data.velocity);
+        console.log("Applied velocity to opponent striker:", data.velocity);
+      }
     });
 
     // Matter.js setup
@@ -273,6 +417,42 @@ const CarromGame = () => {
 
     // Initialize coins tracking
     coinsRef.current = coins;
+
+    // Add unique IDs to each coin for physics sync
+    coinsRef.current.forEach((coin, index) => {
+      (coin.body as any).coinId = `${coin.type}-${index}`;
+    });
+
+    // Function to mirror all coin positions for opponent view
+    const mirrorCoinsPosition = () => {
+      const BOARD_SIZE = 500;
+      const BOARD_OFFSET_X = (canvas.width - BOARD_SIZE) / 2;
+      const BOARD_OFFSET_Y = 50;
+      const boardCenterX = BOARD_OFFSET_X + BOARD_SIZE / 2;
+      const boardCenterY = BOARD_OFFSET_Y + BOARD_SIZE / 2;
+
+      console.log("Mirroring coins...");
+      coinsRef.current.forEach((coin) => {
+        if (coin.type !== "striker") {
+          // Don't mirror striker as it's handled separately
+          const currentPos = coin.body.position;
+          const mirroredPos = {
+            x: 2 * boardCenterX - currentPos.x,
+            y: 2 * boardCenterY - currentPos.y,
+          };
+          console.log(
+            `Mirroring ${coin.type} from`,
+            currentPos,
+            "to",
+            mirroredPos
+          );
+          Matter.Body.setPosition(coin.body, mirroredPos);
+        }
+      });
+    };
+
+    // Store mirror function reference for socket handler
+    (window as any).mirrorCoinsPosition = mirrorCoinsPosition;
 
     // Get all coin bodies for adding to world
     const allCoinBodies = coins.map((coin) => coin.body);
@@ -384,11 +564,14 @@ const CarromGame = () => {
 
     // Game loop
     const gameLoop = () => {
-      Matter.Engine.update(engine);
+      // Only HOST runs physics simulation
+      if (isHostRef.current) {
+        Matter.Engine.update(engine);
 
-      // Check if all coins have stopped moving
-      if (coinsRef.current.length > 0) {
-        checkAllStopped(coinsRef.current);
+        // Check if all coins have stopped moving
+        if (coinsRef.current.length > 0) {
+          checkAllStopped(coinsRef.current);
+        }
       }
 
       requestAnimationFrame(gameLoop);
@@ -405,6 +588,14 @@ const CarromGame = () => {
       // Remove any remaining global listeners
       document.removeEventListener("mousemove", handleGlobalMouseMove);
       document.removeEventListener("mouseup", handleGlobalMouseUp);
+      // Stop physics updates
+      stopPhysicsUpdates();
+      // Clean up turn timeout
+      if (turnEndTimeoutRef.current) {
+        clearTimeout(turnEndTimeoutRef.current);
+      }
+      // Clean up global function reference
+      delete (window as any).mirrorCoinsPosition;
       socket.disconnect();
     };
   }, []);
@@ -425,6 +616,9 @@ const CarromGame = () => {
 
   // Mouse event handlers for aiming only
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Only current HOST can interact with the game, and only during their turn
+    if (!isHostRef.current || !isMyTurn) return;
+    
     if (!engineRef.current) return;
 
     const canvas = canvasRef.current;
@@ -519,11 +713,27 @@ const CarromGame = () => {
     const dy = dragCurrent.y - dragStart.y;
     const distance = Math.sqrt(dx * dx + dy * dy) * 6;
 
+    // Calculate velocity for shooting
+    const velocity = calculateStrikerVelocity(dx, dy, distance);
+
+    // Emit striker shot data to other player
+    if (socket && (velocity.x !== 0 || velocity.y !== 0)) {
+      socket.emit("strikerShot", {
+        velocity: {
+          x: -velocity.x, // Invert for opponent perspective
+          y: -velocity.y, // Invert for opponent perspective
+        },
+        strikerPosition: {
+          x: selectedStriker.position.x,
+          y: selectedStriker.position.y,
+        },
+      });
+    }
+
     // Make striker dynamic again
     Matter.Body.setStatic(selectedStriker, false);
 
-    // Calculate and apply velocity for shooting
-    const velocity = calculateStrikerVelocity(dx, dy, distance);
+    // Apply velocity for shooting
     if (velocity.x !== 0 || velocity.y !== 0) {
       Matter.Body.setVelocity(selectedStriker, velocity);
     }
@@ -596,6 +806,37 @@ const CarromGame = () => {
       {/* Score Display - Left of the board */}
       <div className="mt-8">
         <ScoreDisplay score={score} />
+        
+        {/* Host/Client Status */}
+        <div className="mt-4 p-3 bg-gray-100 rounded-lg">
+          <div className="text-sm font-semibold">
+            Role: <span className={isHost ? "text-green-600" : "text-blue-600"}>
+              {isHost ? "HOST" : "CLIENT"}
+            </span>
+          </div>
+          <div className="text-xs text-gray-600 mt-1">
+            Players: {playerCount}
+          </div>
+          {isHost && (
+            <div className="text-xs text-green-600 mt-1">
+              Running authoritative physics
+            </div>
+          )}
+        </div>
+
+        {/* Turn Status */}
+        <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="text-sm font-semibold">
+            Turn: <span className={isMyTurn ? "text-green-600" : "text-orange-600"}>
+              {isMyTurn ? "Your Turn" : "Opponent's Turn"}
+            </span>
+          </div>
+          {currentHostId && (
+            <div className="text-xs text-gray-600 mt-1">
+              Current HOST: {currentHostId === socket?.id ? "You" : "Opponent"}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="relative border-2 border-gray-800">
@@ -657,9 +898,9 @@ const CarromGame = () => {
                 style={{
                   margin: 0,
                   padding: 0,
-                  pointerEvents: isDragging ? "none" : "auto",
+                  pointerEvents: (!isHost || isDragging) ? "none" : "auto",
                 }}
-                disabled={isDragging}
+                disabled={!isHost || isDragging}
               />
             </div>
           </div>
