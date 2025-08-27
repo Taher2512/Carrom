@@ -30,13 +30,13 @@ const CarromGame = () => {
   const isRemoteUpdateRef = useRef(false); // Flag to prevent infinite socket loops
   const isOpponentPlayingRef = useRef(false);
   const setCoinsRef = useRef(false);
-  
+
   // Host/Client role management
   const [isHost, setIsHost] = useState(false);
   const [playerCount, setPlayerCount] = useState(0);
   const isHostRef = useRef(false);
   const physicsUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Turn management
   const [currentHostId, setCurrentHostId] = useState<string | null>(null);
   const [playersList, setPlayersList] = useState<string[]>([]);
@@ -50,23 +50,33 @@ const CarromGame = () => {
     },
   });
 
-    // Game state management
+  // Game state management
   const { checkAllStopped, handleCoinPocketed, resetStriker } =
     useGameStateManager({
       onAllStopped: () => {
         console.log("All coins stopped - turn ended");
-        // Only the current HOST can end the turn
-        if (isHostRef.current && isMyTurn) {
+        // Only the current HOST can end the turn (remove isMyTurn check)
+        console.log(
+          "HOST status:",
+          isHostRef.current,
+          "Socket ID:",
+          socket?.id
+        );
+
+        if (isHostRef.current) {
+          console.log("HOST ending turn and switching roles");
           // Clear any existing timeout
           if (turnEndTimeoutRef.current) {
             clearTimeout(turnEndTimeoutRef.current);
           }
-          
+
           // Add a small delay to ensure physics have fully settled
           turnEndTimeoutRef.current = setTimeout(() => {
-            console.log("Ending turn and switching HOST");
+            console.log("Emitting endTurn event to server");
             socket?.emit("endTurn");
           }, 500);
+        } else {
+          console.log("CLIENT detected coins stopped - waiting for HOST");
         }
       },
       onCoinPocketed: (coinType) => {
@@ -166,13 +176,13 @@ const CarromGame = () => {
     if (physicsUpdateIntervalRef.current) {
       clearInterval(physicsUpdateIntervalRef.current);
     }
-    
+
     // Send physics updates every 50ms (20 FPS)
     physicsUpdateIntervalRef.current = setInterval(() => {
       if (!socket || !isHostRef.current) return;
-      
+
       // Collect all coin positions and velocities
-      const physicsData = coinsRef.current.map(coin => ({
+      const physicsData = coinsRef.current.map((coin) => ({
         id: (coin.body as any).coinId,
         type: coin.type,
         position: { x: coin.body.position.x, y: coin.body.position.y },
@@ -180,48 +190,53 @@ const CarromGame = () => {
         angle: coin.body.angle,
         angularVelocity: coin.body.angularVelocity,
       }));
-      
+
       socket.emit("physicsUpdate", { coins: physicsData });
     }, 50);
   };
-  
+
   const stopPhysicsUpdates = () => {
     if (physicsUpdateIntervalRef.current) {
       clearInterval(physicsUpdateIntervalRef.current);
       physicsUpdateIntervalRef.current = null;
     }
   };
-  
+
   const applyPhysicsUpdate = (data: any) => {
     if (isHostRef.current) return; // Host doesn't apply external updates
-    
+
     // Transform coordinates for opponent perspective
     const BOARD_SIZE = 500;
     const BOARD_OFFSET_X = (800 - BOARD_SIZE) / 2;
     const BOARD_OFFSET_Y = 50;
     const boardCenterX = BOARD_OFFSET_X + BOARD_SIZE / 2;
     const boardCenterY = BOARD_OFFSET_Y + BOARD_SIZE / 2;
-    
+
     data.coins.forEach((coinData: any) => {
       // Match coins by unique ID instead of just type
-      const localCoin = coinsRef.current.find(c => (c.body as any).coinId === coinData.id);
+      const localCoin = coinsRef.current.find(
+        (c) => (c.body as any).coinId === coinData.id
+      );
       if (localCoin) {
         // Transform position and velocity for opponent perspective
         const transformedPos = {
           x: 2 * boardCenterX - coinData.position.x,
           y: 2 * boardCenterY - coinData.position.y,
         };
-        
+
         const transformedVel = {
           x: -coinData.velocity.x,
           y: -coinData.velocity.y,
         };
-        
+
         // Apply the transformed physics state
         Matter.Body.setPosition(localCoin.body, transformedPos);
         Matter.Body.setVelocity(localCoin.body, transformedVel);
         Matter.Body.setAngle(localCoin.body, coinData.angle);
-        Matter.Body.setAngularVelocity(localCoin.body, coinData.angularVelocity);
+        Matter.Body.setAngularVelocity(
+          localCoin.body,
+          coinData.angularVelocity
+        );
       }
     });
   };
@@ -240,7 +255,7 @@ const CarromGame = () => {
       setIsHost(hostRole);
       isHostRef.current = hostRole;
       setIsMyTurn(hostRole); // Initially, the HOST starts the turn
-      
+
       if (hostRole) {
         console.log("This client is the HOST - running authoritative physics");
         startPhysicsUpdates();
@@ -260,6 +275,13 @@ const CarromGame = () => {
       setCurrentHostId(data.currentHost);
       setPlayersList(data.playersList);
       setIsMyTurn(socket.id === data.currentHost);
+      setStrikerPosition(50);
+      console.log("hi8888", socket.id === data.currentHost);
+
+      // Force update striker position after state update
+      setTimeout(() => {
+        updateStrikerPosition(50);
+      }, 50);
       console.log("Turn info updated:", data);
       console.log("Is my turn:", socket.id === data.currentHost);
     });
@@ -618,7 +640,7 @@ const CarromGame = () => {
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     // Only current HOST can interact with the game, and only during their turn
     if (!isHostRef.current || !isMyTurn) return;
-    
+
     if (!engineRef.current) return;
 
     const canvas = canvasRef.current;
@@ -806,11 +828,12 @@ const CarromGame = () => {
       {/* Score Display - Left of the board */}
       <div className="mt-8">
         <ScoreDisplay score={score} />
-        
+
         {/* Host/Client Status */}
         <div className="mt-4 p-3 bg-gray-100 rounded-lg">
           <div className="text-sm font-semibold">
-            Role: <span className={isHost ? "text-green-600" : "text-blue-600"}>
+            Role:{" "}
+            <span className={isHost ? "text-green-600" : "text-blue-600"}>
               {isHost ? "HOST" : "CLIENT"}
             </span>
           </div>
@@ -827,7 +850,8 @@ const CarromGame = () => {
         {/* Turn Status */}
         <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
           <div className="text-sm font-semibold">
-            Turn: <span className={isMyTurn ? "text-green-600" : "text-orange-600"}>
+            Turn:{" "}
+            <span className={isMyTurn ? "text-green-600" : "text-orange-600"}>
               {isMyTurn ? "Your Turn" : "Opponent's Turn"}
             </span>
           </div>
@@ -898,7 +922,7 @@ const CarromGame = () => {
                 style={{
                   margin: 0,
                   padding: 0,
-                  pointerEvents: (!isHost || isDragging) ? "none" : "auto",
+                  pointerEvents: !isHost || isDragging ? "none" : "auto",
                 }}
                 disabled={!isHost || isDragging}
               />

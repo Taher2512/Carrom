@@ -23,8 +23,8 @@ export const drawTrajectory = ({
     selectedStriker &&
     selectedStriker.position
   ) {
-    const dx = (dragCurrent.x - dragStart.x) * 6;
-    const dy = (dragCurrent.y - dragStart.y) * 6;
+    const dx = (dragCurrent.x - dragStart.x) / 3;
+    const dy = (dragCurrent.y - dragStart.y) / 3;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
     if (distance > 5) {
@@ -48,8 +48,8 @@ export const drawTrajectory = ({
       ctx.setLineDash([]); // Reset dash
 
       // Draw power indicator
-      const powerMultiplier = distance / 30;
-      const power = Math.min(powerMultiplier, 30) / 30; // Normalize to 0-1
+      const powerMultiplier = distance / 9;
+      const power = Math.min(powerMultiplier, 9) / 9; // Normalize to 0-1
       ctx.fillStyle = `rgba(255, ${255 - Math.floor(power * 255)}, 0, 0.8)`;
       ctx.fillRect(10, 10, 200 * power, 20);
       ctx.strokeStyle = "#000";

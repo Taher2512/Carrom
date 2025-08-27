@@ -52,6 +52,8 @@ io.on("connection", (socket) => {
 
   // Handle turn end - switch host
   socket.on("endTurn", () => {
+    console.log("jjjjjj");
+
     if (socket.id === hostSocketId && hostSocketId && clientsList.length > 1) {
       console.log(`Turn ended by ${socket.id}, switching host...`);
 
