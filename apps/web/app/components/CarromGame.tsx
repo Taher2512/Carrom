@@ -34,7 +34,7 @@ const CarromGame = () => {
   // Host/Client role management
   const [isHost, setIsHost] = useState(false);
   const [playerCount, setPlayerCount] = useState(0);
-  const isHostRef = useRef(false);
+  const isHostRef = useRef(true);
   const physicsUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Turn management
@@ -116,8 +116,6 @@ const CarromGame = () => {
 
   // Update striker position based on slider
   const updateStrikerPosition = (position: number) => {
-    // setStrikerPosition(position);
-
     if (!engineRef.current || coinsRef.current.length === 0) {
       console.log("Cannot update striker: engine or coins not ready");
       return;
@@ -137,16 +135,11 @@ const CarromGame = () => {
 
     let newPos;
 
-    // Calculate position on the bottom threshold line only
-    if (isOpponentPlayingRef.current) {
-      newPos = getStrikerPositionOnLine(
-        position / 100, // Convert to 0-1 range
-        "top",
-        BOARD_OFFSET_X,
-        BOARD_OFFSET_Y,
-        BOARD_SIZE
-      );
-    } else {
+    // Current HOST always plays from bottom, CLIENT always plays from top
+    console.log("Striker positioning - isHost:", isHostRef.current);
+
+    if (isHostRef.current) {
+      // HOST plays from bottom
       newPos = getStrikerPositionOnLine(
         position / 100, // Convert to 0-1 range
         "bottom",
@@ -154,6 +147,17 @@ const CarromGame = () => {
         BOARD_OFFSET_Y,
         BOARD_SIZE
       );
+      console.log("HOST: Positioning striker at bottom");
+    } else {
+      // CLIENT plays from top
+      newPos = getStrikerPositionOnLine(
+        position / 100, // Convert to 0-1 range
+        "top",
+        BOARD_OFFSET_X,
+        BOARD_OFFSET_Y,
+        BOARD_SIZE
+      );
+      console.log("CLIENT: Positioning striker at top");
     }
 
     console.log(
@@ -167,8 +171,6 @@ const CarromGame = () => {
     Matter.Body.setVelocity(striker.body, { x: 0, y: 0 });
     Matter.Body.setAngularVelocity(striker.body, 0);
     Matter.Body.setPosition(striker.body, { x: newPos.x, y: newPos.y });
-
-    isOpponentPlayingRef.current = false;
   };
 
   // Physics update functions for authoritative server
@@ -248,20 +250,27 @@ const CarromGame = () => {
       console.log("Connected:", socket.id);
     });
 
-    // Handle role assignment
+    // Handle role assignment (only for initial connection)
     socket.on("assignRole", (data: any) => {
+      console.log("=== INITIAL ROLE ASSIGNMENT ===");
       console.log("Assigned role:", data.role);
+
       const hostRole = data.role === "host";
+
       setIsHost(hostRole);
       isHostRef.current = hostRole;
-      setIsMyTurn(hostRole); // Initially, the HOST starts the turn
+      setIsMyTurn(hostRole);
+
+      updateStrikerPosition(50); // Reset striker to center on role assignment
 
       if (hostRole) {
-        console.log("This client is the HOST - running authoritative physics");
+        console.log("Starting as initial HOST - starting physics");
         startPhysicsUpdates();
       } else {
-        console.log("This client is a CLIENT - receiving physics updates");
+        console.log("Starting as initial CLIENT - no physics");
       }
+
+      console.log("=== END INITIAL ROLE ASSIGNMENT ===");
     });
 
     // Handle player count updates
@@ -274,16 +283,39 @@ const CarromGame = () => {
     socket.on("turnInfo", (data: any) => {
       setCurrentHostId(data.currentHost);
       setPlayersList(data.playersList);
-      setIsMyTurn(socket.id === data.currentHost);
-      setStrikerPosition(50);
-      console.log("hi8888", socket.id === data.currentHost);
+      const amITheHost = socket.id === data.currentHost;
+      const wasHost = isHostRef.current;
 
-      // Force update striker position after state update
+      console.log("=== TURN INFO ===");
+      console.log("My Socket ID:", socket.id);
+      console.log("Current Host ID:", data.currentHost);
+      console.log("Was host:", wasHost, "-> Am I the host now?", amITheHost);
+
+      // Update role states
+      setIsHost(amITheHost);
+      isHostRef.current = amITheHost;
+      setIsMyTurn(amITheHost);
+
+      // Handle physics transition
+      if (wasHost && !amITheHost) {
+        console.log("🔄 Lost HOST role - stopping physics");
+        stopPhysicsUpdates();
+      } else if (!wasHost && amITheHost) {
+        console.log("⚡ Gained HOST role - starting physics");
+        setTimeout(() => {
+          startPhysicsUpdates();
+        }, 200);
+      }
+
+      // Reset striker position to center and place it on correct side
+      setStrikerPosition(50);
+
+      // Small delay to ensure role state is updated
       setTimeout(() => {
         updateStrikerPosition(50);
-      }, 50);
-      console.log("Turn info updated:", data);
-      console.log("Is my turn:", socket.id === data.currentHost);
+      }, 100);
+
+      console.log("=== END TURN INFO ===");
     });
 
     // Handle physics updates (clients only)

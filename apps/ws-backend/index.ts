@@ -52,33 +52,43 @@ io.on("connection", (socket) => {
 
   // Handle turn end - switch host
   socket.on("endTurn", () => {
-    console.log("jjjjjj");
+    console.log("=== END TURN RECEIVED ===");
+    console.log("From socket:", socket.id);
+    console.log("Current host:", hostSocketId);
+    console.log("Clients count:", clientsList.length);
 
     if (socket.id === hostSocketId && hostSocketId && clientsList.length > 1) {
-      console.log(`Turn ended by ${socket.id}, switching host...`);
+      console.log(`Turn ended by HOST ${socket.id}, switching roles...`);
 
       // Find current host index and switch to next player
       const currentIndex = clientsList.indexOf(hostSocketId);
       const nextIndex = (currentIndex + 1) % clientsList.length;
       const newHostId = clientsList[nextIndex];
 
-      if (newHostId) {
-        // Notify old host they're now a client
-        io.to(hostSocketId).emit("assignRole", { role: "client" });
+      if (newHostId && connectedClients.has(newHostId)) {
+        const oldHostId = hostSocketId;
 
-        // Assign new host
+        console.log(`Switching host from ${oldHostId} to ${newHostId}`);
+
+        // Update host reference
         hostSocketId = newHostId;
-        io.to(newHostId).emit("assignRole", { role: "host" });
 
-        console.log(`New HOST assigned: ${newHostId}`);
-
-        // Broadcast turn change to all clients
+        // Only send turnInfo - let clients determine their roles from this
         io.emit("turnInfo", {
           currentHost: hostSocketId,
           playersList: clientsList,
         });
+
+        console.log(
+          `Role switch completed via turnInfo: new host is ${hostSocketId}`
+        );
       }
+    } else {
+      console.log(
+        `Ignoring endTurn from ${socket.id} (not current host or insufficient players)`
+      );
     }
+    console.log("=== END TURN PROCESSING COMPLETE ===");
   });
 
   socket.on("disconnect", () => {
