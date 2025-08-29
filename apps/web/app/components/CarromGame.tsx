@@ -42,6 +42,10 @@ const CarromGame = () => {
   const [playersList, setPlayersList] = useState<string[]>([]);
   const [isMyTurn, setIsMyTurn] = useState(false);
   const turnEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Track pocketed coins during current turn
+  const pocketedCoinsThisTurnRef = useRef<string[]>([]);
+  const strikerPocketedRef = useRef<boolean>(false);
 
   // Score management
   const { score, addPoints, resetScore } = useScoreManager({
@@ -55,33 +59,52 @@ const CarromGame = () => {
     useGameStateManager({
       onAllStopped: () => {
         console.log("All coins stopped - turn ended");
-        // Only the current HOST can end the turn (remove isMyTurn check)
-        console.log(
-          "HOST status:",
-          isHostRef.current,
-          "Socket ID:",
-          socket?.id
-        );
-
+        console.log("Coins pocketed this turn:", pocketedCoinsThisTurnRef.current);
+        console.log("Striker pocketed:", strikerPocketedRef.current);
+        
         if (isHostRef.current) {
-          console.log("HOST ending turn and switching roles");
-          // Clear any existing timeout
-          if (turnEndTimeoutRef.current) {
-            clearTimeout(turnEndTimeoutRef.current);
-          }
+          // Determine if turn should switch based on carrom rules
+          const shouldSwitchTurn = 
+            pocketedCoinsThisTurnRef.current.length === 0 || // No coins pocketed
+            strikerPocketedRef.current; // Striker was pocketed (foul)
+          
+          console.log("Should switch turn?", shouldSwitchTurn);
+          
+          if (shouldSwitchTurn) {
+            console.log("HOST ending turn and switching roles");
+            // Clear any existing timeout
+            if (turnEndTimeoutRef.current) {
+              clearTimeout(turnEndTimeoutRef.current);
+            }
 
-          // Add a small delay to ensure physics have fully settled
-          turnEndTimeoutRef.current = setTimeout(() => {
-            console.log("Emitting endTurn event to server");
-            socket?.emit("endTurn");
-          }, 500);
+            // Add a small delay to ensure physics have fully settled
+            turnEndTimeoutRef.current = setTimeout(() => {
+              console.log("Emitting endTurn event to server");
+              socket?.emit("endTurn");
+            }, 500);
+          } else {
+            console.log("HOST continues turn (pocketed coin without foul)");
+            // Reset striker position but don't switch host
+            setTimeout(() => {
+              updateStrikerPosition(50);
+              setStrikerPosition(50);
+            }, 500);
+          }
+          
+          // Reset turn tracking
+          pocketedCoinsThisTurnRef.current = [];
+          strikerPocketedRef.current = false;
         } else {
           console.log("CLIENT detected coins stopped - waiting for HOST");
         }
       },
       onCoinPocketed: (coinType) => {
         console.log("Coin pocketed:", coinType);
-        if (coinType !== "striker") {
+        
+        if (coinType === "striker") {
+          strikerPocketedRef.current = true;
+        } else {
+          pocketedCoinsThisTurnRef.current.push(coinType);
           addPoints(coinType);
         }
       },
@@ -290,6 +313,11 @@ const CarromGame = () => {
       console.log("My Socket ID:", socket.id);
       console.log("Current Host ID:", data.currentHost);
       console.log("Was host:", wasHost, "-> Am I the host now?", amITheHost);
+
+      // Reset turn tracking for new turn
+      pocketedCoinsThisTurnRef.current = [];
+      strikerPocketedRef.current = false;
+      console.log("Reset turn tracking for new turn");
 
       // Update role states
       setIsHost(amITheHost);
@@ -789,6 +817,11 @@ const CarromGame = () => {
 
     // Apply velocity for shooting
     if (velocity.x !== 0 || velocity.y !== 0) {
+      // Reset turn tracking when shot is taken
+      pocketedCoinsThisTurnRef.current = [];
+      strikerPocketedRef.current = false;
+      console.log("Shot taken - reset turn tracking");
+      
       Matter.Body.setVelocity(selectedStriker, velocity);
     }
 
