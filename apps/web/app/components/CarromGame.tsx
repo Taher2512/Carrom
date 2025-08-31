@@ -42,7 +42,7 @@ const CarromGame = () => {
   const [playersList, setPlayersList] = useState<string[]>([]);
   const [isMyTurn, setIsMyTurn] = useState(false);
   const turnEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Track pocketed coins during current turn
   const pocketedCoinsThisTurnRef = useRef<string[]>([]);
   const strikerPocketedRef = useRef<boolean>(false);
@@ -59,17 +59,20 @@ const CarromGame = () => {
     useGameStateManager({
       onAllStopped: () => {
         console.log("All coins stopped - turn ended");
-        console.log("Coins pocketed this turn:", pocketedCoinsThisTurnRef.current);
+        console.log(
+          "Coins pocketed this turn:",
+          pocketedCoinsThisTurnRef.current
+        );
         console.log("Striker pocketed:", strikerPocketedRef.current);
-        
+
         if (isHostRef.current) {
           // Determine if turn should switch based on carrom rules
-          const shouldSwitchTurn = 
+          const shouldSwitchTurn =
             pocketedCoinsThisTurnRef.current.length === 0 || // No coins pocketed
             strikerPocketedRef.current; // Striker was pocketed (foul)
-          
+
           console.log("Should switch turn?", shouldSwitchTurn);
-          
+
           if (shouldSwitchTurn) {
             console.log("HOST ending turn and switching roles");
             // Clear any existing timeout
@@ -90,7 +93,7 @@ const CarromGame = () => {
               setStrikerPosition(50);
             }, 500);
           }
-          
+
           // Reset turn tracking
           pocketedCoinsThisTurnRef.current = [];
           strikerPocketedRef.current = false;
@@ -100,7 +103,7 @@ const CarromGame = () => {
       },
       onCoinPocketed: (coinType) => {
         console.log("Coin pocketed:", coinType);
-        
+
         if (coinType === "striker") {
           strikerPocketedRef.current = true;
         } else {
@@ -150,11 +153,10 @@ const CarromGame = () => {
       return;
     }
 
-    const { BOARD_OFFSET_X, BOARD_OFFSET_Y, BOARD_SIZE } = gameObjects as any;
-    if (!BOARD_OFFSET_X) {
-      console.log("Game objects not ready");
-      return;
-    }
+    // Use hardcoded constants to avoid gameObjects dependency issues during turn switches
+    const BOARD_SIZE = 500;
+    const BOARD_OFFSET_X = (800 - BOARD_SIZE) / 2; // canvas width is 800
+    const BOARD_OFFSET_Y = 50;
 
     let newPos;
 
@@ -439,6 +441,11 @@ const CarromGame = () => {
       }
     });
 
+    socket.on("strikerPocketed", () => {
+      updateStrikerPosition(50);
+      setStrikerPosition(50);
+    });
+
     // Matter.js setup
     const engine = Matter.Engine.create();
     const world = engine.world;
@@ -564,18 +571,35 @@ const CarromGame = () => {
           (pockets.includes(bodyB) && !pockets.includes(bodyA))
         ) {
           const coin = pockets.includes(bodyA) ? bodyB : bodyA;
+          const coinObj = coinsRef.current.find((c) => c.body === coin);
 
           console.log("Coin fell into pocket!");
 
-          // Handle scoring before removing coin
-          handleCoinPocketed(coin, coinsRef.current);
+          if (coinObj?.type === "striker") {
+            console.log("Striker pocketed - will reappear on board");
+            // Handle striker pocketing for scoring but don't remove from world
+            handleCoinPocketed(coin, coinsRef.current);
 
-          // Remove coin from world and tracking array
-          setTimeout(() => {
-            Matter.World.remove(world, coin);
-            // Remove from coins tracking array
-            coinsRef.current = coinsRef.current.filter((c) => c.body !== coin);
-          }, 100);
+            // Reset striker position immediately to center of current player's side
+            setTimeout(() => {
+              if (socket) {
+                socket.emit("strikerPocketed");
+              }
+            }, 200);
+          } else {
+            console.log("Regular coin pocketed - removing from game");
+            // Handle scoring for regular coins
+            handleCoinPocketed(coin, coinsRef.current);
+
+            // Remove regular coins from world and tracking array
+            setTimeout(() => {
+              Matter.World.remove(world, coin);
+              // Remove from coins tracking array
+              coinsRef.current = coinsRef.current.filter(
+                (c) => c.body !== coin
+              );
+            }, 100);
+          }
         }
       });
     });
@@ -694,7 +718,7 @@ const CarromGame = () => {
 
     // Reset the flag after processing
     isRemoteUpdateRef.current = false;
-  }, [strikerPosition, gameObjects]);
+  }, [strikerPosition]); // Removed gameObjects dependency
 
   // Mouse event handlers for aiming only
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -821,7 +845,7 @@ const CarromGame = () => {
       pocketedCoinsThisTurnRef.current = [];
       strikerPocketedRef.current = false;
       console.log("Shot taken - reset turn tracking");
-      
+
       Matter.Body.setVelocity(selectedStriker, velocity);
     }
 

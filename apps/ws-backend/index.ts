@@ -50,6 +50,10 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("strikerPocketed", () => {
+    socket.broadcast.emit("strikerPocketed");
+  });
+
   // Handle turn end - switch host
   socket.on("endTurn", () => {
     console.log("=== END TURN RECEIVED ===");
