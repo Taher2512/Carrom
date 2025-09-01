@@ -446,6 +446,31 @@ const CarromGame = () => {
       setStrikerPosition(50);
     });
 
+    socket.on("coinPocketed", (data: any) => {
+      console.log("Received coinPocketed event for coin:", data.coinId);
+
+      // Find and remove the coin with matching ID
+      const coinToRemove = coinsRef.current.find(
+        (c) => (c.body as any).coinId === data.coinId
+      );
+
+      if (coinToRemove) {
+        console.log(`Removing coin ${data.coinId} from CLIENT world`);
+
+        // Remove from Matter.js world
+        Matter.World.remove(world, coinToRemove.body);
+
+        // Remove from coins tracking array
+        coinsRef.current = coinsRef.current.filter(
+          (c) => c.body !== coinToRemove.body
+        );
+
+        console.log(`Coin ${data.coinId} successfully removed from CLIENT`);
+      } else {
+        console.log(`Warning: Coin ${data.coinId} not found on CLIENT`);
+      }
+    });
+
     // Matter.js setup
     const engine = Matter.Engine.create();
     const world = engine.world;
@@ -469,7 +494,7 @@ const CarromGame = () => {
     const STRIKER_RADIUS = 15;
 
     // Create game bodies
-    const { walls, pockets, POCKET_RADIUS } = createGameBodies(
+    const { walls, pockets, pocketSensors, POCKET_RADIUS } = createGameBodies(
       BOARD_OFFSET_X,
       BOARD_OFFSET_Y,
       BOARD_SIZE
@@ -547,12 +572,18 @@ const CarromGame = () => {
     const allCoinBodies = coins.map((coin) => coin.body);
 
     // Add all bodies to world
-    Matter.World.add(world, [...walls, ...pockets, ...allCoinBodies]);
+    Matter.World.add(world, [
+      ...walls,
+      ...pockets,
+      ...pocketSensors,
+      ...allCoinBodies,
+    ]);
 
     // Store references for cleanup and interaction
     setGameObjects({
       walls,
       pockets,
+      pocketSensors,
       coins,
       BOARD_SIZE,
       BOARD_OFFSET_X,
@@ -560,20 +591,21 @@ const CarromGame = () => {
       POCKET_RADIUS,
     });
 
-    // Collision detection for pockets
+    // Collision detection for pockets - using smaller sensors for precise detection
     Matter.Events.on(engine, "collisionStart", (event) => {
       event.pairs.forEach((pair) => {
         const { bodyA, bodyB } = pair;
 
-        // Check if a coin hit a pocket
-        if (
-          (pockets.includes(bodyA) && !pockets.includes(bodyB)) ||
-          (pockets.includes(bodyB) && !pockets.includes(bodyA))
-        ) {
-          const coin = pockets.includes(bodyA) ? bodyB : bodyA;
+        // Check if a coin hit a pocket sensor (more precise detection)
+        const isPocketSensorCollision =
+          (pocketSensors.includes(bodyA) && !pocketSensors.includes(bodyB)) ||
+          (pocketSensors.includes(bodyB) && !pocketSensors.includes(bodyA));
+
+        if (isPocketSensorCollision) {
+          const coin = pocketSensors.includes(bodyA) ? bodyB : bodyA;
           const coinObj = coinsRef.current.find((c) => c.body === coin);
 
-          console.log("Coin fell into pocket!");
+          console.log("Coin fully entered pocket!");
 
           if (coinObj?.type === "striker") {
             console.log("Striker pocketed - will reappear on board");
@@ -588,6 +620,10 @@ const CarromGame = () => {
             }, 200);
           } else {
             console.log("Regular coin pocketed - removing from game");
+
+            // Get the coin ID for synchronization
+            const coinId = (coin as any).coinId;
+
             // Handle scoring for regular coins
             handleCoinPocketed(coin, coinsRef.current);
 
@@ -598,6 +634,12 @@ const CarromGame = () => {
               coinsRef.current = coinsRef.current.filter(
                 (c) => c.body !== coin
               );
+
+              // Emit coin removal to sync with other player
+              if (socket && coinId) {
+                socket.emit("coinPocketed", { coinId });
+                console.log(`Emitted coinPocketed event for coin ${coinId}`);
+              }
             }, 100);
           }
         }

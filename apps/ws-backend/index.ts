@@ -54,6 +54,11 @@ io.on("connection", (socket) => {
     socket.broadcast.emit("strikerPocketed");
   });
 
+  socket.on("coinPocketed", (data) => {
+    console.log("Coin pocketed - broadcasting to other players:", data.coinId);
+    socket.broadcast.emit("coinPocketed", data);
+  });
+
   // Handle turn end - switch host
   socket.on("endTurn", () => {
     console.log("=== END TURN RECEIVED ===");

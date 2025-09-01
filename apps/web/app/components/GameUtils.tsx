@@ -208,7 +208,9 @@ export const createGameBodies = (
     }),
   ];
 
-  // Create corner pockets
+  // Create corner pockets with inner sensors for more accurate detection
+  const INNER_SENSOR_RADIUS = 12; // Smaller radius for precise detection
+
   const pockets = [
     // Top-left pocket
     Matter.Bodies.circle(boardOffsetX, boardOffsetY, POCKET_RADIUS, {
@@ -251,5 +253,57 @@ export const createGameBodies = (
     ),
   ];
 
-  return { walls: [...boardWalls, ...boundaryWalls], pockets, POCKET_RADIUS };
+  // Create smaller inner sensors for precise pocket detection
+  const pocketSensors = [
+    // Top-left pocket sensor
+    Matter.Bodies.circle(boardOffsetX, boardOffsetY, INNER_SENSOR_RADIUS, {
+      isStatic: true,
+      isSensor: true,
+      render: { visible: false }, // Invisible sensor
+      label: "pocket-sensor",
+    }),
+    // Top-right pocket sensor
+    Matter.Bodies.circle(
+      boardOffsetX + boardSize,
+      boardOffsetY,
+      INNER_SENSOR_RADIUS,
+      {
+        isStatic: true,
+        isSensor: true,
+        render: { visible: false },
+        label: "pocket-sensor",
+      }
+    ),
+    // Bottom-left pocket sensor
+    Matter.Bodies.circle(
+      boardOffsetX,
+      boardOffsetY + boardSize,
+      INNER_SENSOR_RADIUS,
+      {
+        isStatic: true,
+        isSensor: true,
+        render: { visible: false },
+        label: "pocket-sensor",
+      }
+    ),
+    // Bottom-right pocket sensor
+    Matter.Bodies.circle(
+      boardOffsetX + boardSize,
+      boardOffsetY + boardSize,
+      INNER_SENSOR_RADIUS,
+      {
+        isStatic: true,
+        isSensor: true,
+        render: { visible: false },
+        label: "pocket-sensor",
+      }
+    ),
+  ];
+
+  return {
+    walls: [...boardWalls, ...boundaryWalls],
+    pockets,
+    pocketSensors,
+    POCKET_RADIUS,
+  };
 };
