@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Matter from "matter-js";
 import { drawCarromBoard } from "./CarromBoard";
 import { drawCarromCoins, createCarromCoins } from "./CarromCoins";
@@ -19,6 +20,7 @@ let socket: any;
 let ctx: any;
 
 const CarromGame = () => {
+  const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
   const renderRef = useRef<(() => void) | null>(null);
@@ -47,12 +49,48 @@ const CarromGame = () => {
   const pocketedCoinsThisTurnRef = useRef<string[]>([]);
   const strikerPocketedRef = useRef<boolean>(false);
 
-  // Score management
-  const { score, addPoints, resetScore } = useScoreManager({
-    onScoreUpdate: (newScore) => {
-      console.log("Score updated:", newScore);
+  // Score management with win condition
+  const { gameScore, addPoints, resetScore, syncScore } = useScoreManager({
+    onScoreUpdate: (newGameScore) => {
+      console.log("Score updated:", newGameScore);
+      // Emit score update to other players
+      if (socket) {
+        socket.emit("scoreUpdate", newGameScore);
+      }
+    },
+    onGameWon: (winner, finalScore) => {
+      console.log(`Game won by ${winner}!`, finalScore);
+      // Emit game won event to other players
+      if (socket) {
+        socket.emit("gameWon", { winner, finalScore });
+      }
+      // Show winner message briefly, then route to home page
+      setTimeout(() => {
+        console.log("Game ended, routing to home page...");
+        router.push("/");
+      }, 3000);
     },
   });
+
+  // Function to reset the entire game
+  const resetGame = useCallback(() => {
+    console.log("🔄 Resetting game...");
+
+    // Reset scores
+    resetScore();
+
+    // Reset turn tracking
+    pocketedCoinsThisTurnRef.current = [];
+    strikerPocketedRef.current = false;
+
+    // Emit game reset to other player
+    if (socket) {
+      socket.emit("gameReset");
+    }
+
+    // TODO: Reset coin positions on board
+    console.log("Game reset completed");
+  }, [resetScore, socket]);
 
   // Game state management
   const { checkAllStopped, handleCoinPocketed, resetStriker } =
@@ -108,7 +146,9 @@ const CarromGame = () => {
           strikerPocketedRef.current = true;
         } else {
           pocketedCoinsThisTurnRef.current.push(coinType);
-          addPoints(coinType);
+          // Player 1 is the original host (socket connects first), Player 2 is subsequent
+          const isPlayer1 = isHostRef.current;
+          addPoints(coinType, isPlayer1);
         }
       },
     });
@@ -471,7 +511,41 @@ const CarromGame = () => {
       }
     });
 
-    // Matter.js setup
+    // Handle score updates from other players
+    socket.on("scoreUpdate", (newGameScore: any) => {
+      console.log("Received score update from other player:", newGameScore);
+      // Update local score state to match
+      syncScore(newGameScore);
+    });
+
+    socket.on("gameWon", (data: any) => {
+      console.log("Received game won event:", data);
+      console.log(`${data.winner} won the game! Routing to home page...`);
+      // Route to home page after showing the winner briefly
+      setTimeout(() => {
+        router.push("/");
+      }, 3000);
+    });
+
+    socket.on("gameReset", () => {
+      console.log("Received game reset event");
+      resetGame();
+    });
+
+    socket.on("gameWon", (data: any) => {
+      console.log(`🎉 Game Won! ${data.winner} wins!`);
+      // Show winner announcement
+      alert(`🎉 ${data.winner} wins the game!`);
+    });
+
+    socket.on("gameReset", () => {
+      console.log("🔄 Received game reset from opponent");
+      // Reset local game state
+      resetScore();
+      pocketedCoinsThisTurnRef.current = [];
+      strikerPocketedRef.current = false;
+      // TODO: Reset board coin positions
+    }); // Matter.js setup
     const engine = Matter.Engine.create();
     const world = engine.world;
     engineRef.current = engine;
@@ -958,7 +1032,7 @@ const CarromGame = () => {
     <div className="flex items-start justify-center gap-6 p-4">
       {/* Score Display - Left of the board */}
       <div className="mt-8">
-        <ScoreDisplay score={score} />
+        <ScoreDisplay gameScore={gameScore} />
 
         {/* Host/Client Status */}
         <div className="mt-4 p-3 bg-gray-100 rounded-lg">

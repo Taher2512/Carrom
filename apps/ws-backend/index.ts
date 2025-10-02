@@ -55,8 +55,27 @@ io.on("connection", (socket) => {
   });
 
   socket.on("coinPocketed", (data) => {
-    console.log("Coin pocketed - broadcasting to other players:", data.coinId);
     socket.broadcast.emit("coinPocketed", data);
+  });
+
+  socket.on("scoreUpdate", (data) => {
+    socket.broadcast.emit("scoreUpdate", data);
+  });
+
+  socket.on("gameWon", (data) => {
+    socket.broadcast.emit("gameWon", data);
+  });
+
+  socket.on("gameReset", () => {
+    socket.broadcast.emit("gameReset");
+  });
+
+  socket.on("gameWon", (data) => {
+    socket.broadcast.emit("gameWon", data);
+  });
+
+  socket.on("gameReset", () => {
+    socket.broadcast.emit("gameReset");
   });
 
   // Handle turn end - switch host

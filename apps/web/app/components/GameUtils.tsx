@@ -253,52 +253,167 @@ export const createGameBodies = (
     ),
   ];
 
-  // Create smaller inner sensors for precise pocket detection
-  const pocketSensors = [
-    // Top-left pocket sensor
-    Matter.Bodies.circle(boardOffsetX, boardOffsetY, INNER_SENSOR_RADIUS, {
-      isStatic: true,
-      isSensor: true,
-      render: { visible: false }, // Invisible sensor
-      label: "pocket-sensor",
-    }),
-    // Top-right pocket sensor
-    Matter.Bodies.circle(
-      boardOffsetX + boardSize,
-      boardOffsetY,
-      INNER_SENSOR_RADIUS,
+  // Create smaller sensor bodies inside each pocket for more accurate detection
+  const pocketSensors = pockets.map((pocket, index) => {
+    const sensorRadius = POCKET_RADIUS * 0.6; // Smaller radius for more accurate detection
+    return Matter.Bodies.circle(
+      pocket.position.x,
+      pocket.position.y,
+      sensorRadius,
       {
-        isStatic: true,
         isSensor: true,
-        render: { visible: false },
-        label: "pocket-sensor",
-      }
-    ),
-    // Bottom-left pocket sensor
-    Matter.Bodies.circle(
-      boardOffsetX,
-      boardOffsetY + boardSize,
-      INNER_SENSOR_RADIUS,
-      {
         isStatic: true,
-        isSensor: true,
         render: { visible: false },
-        label: "pocket-sensor",
       }
-    ),
-    // Bottom-right pocket sensor
-    Matter.Bodies.circle(
-      boardOffsetX + boardSize,
-      boardOffsetY + boardSize,
-      INNER_SENSOR_RADIUS,
-      {
-        isStatic: true,
-        isSensor: true,
-        render: { visible: false },
-        label: "pocket-sensor",
-      }
-    ),
-  ];
+    );
+  });
+
+  // Create invisible walls around each pocket to prevent coins from flying out
+  // Only create walls on the outer edges, leaving the entrance from the board center open
+  const pocketWalls: Matter.Body[] = [];
+  const wallThickness = 10;
+  const wallLength = POCKET_RADIUS * 1.5;
+
+  pockets.forEach((pocket, index) => {
+    const pos = pocket.position;
+    if (index === 0) {
+      // Top-left corner pocket
+      // Left wall (outer edge) - blocks exit to left
+      pocketWalls.push(
+        Matter.Bodies.rectangle(
+          pos.x - POCKET_RADIUS - wallThickness / 2,
+          pos.y,
+          wallThickness,
+          wallLength,
+          {
+            isStatic: true,
+            render: { visible: false },
+            restitution: 0.3,
+            friction: 0.8,
+          }
+        )
+      );
+      // Top wall (outer edge) - blocks exit upward
+      pocketWalls.push(
+        Matter.Bodies.rectangle(
+          pos.x,
+          pos.y - POCKET_RADIUS - wallThickness / 2,
+          wallLength,
+          wallThickness,
+          {
+            isStatic: true,
+            render: { visible: false },
+            restitution: 0.3,
+            friction: 0.8,
+          }
+        )
+      );
+    } else if (index === 1) {
+      // Top-right corner pocket
+      // Right wall (outer edge) - blocks exit to right
+      pocketWalls.push(
+        Matter.Bodies.rectangle(
+          pos.x + POCKET_RADIUS + wallThickness / 2,
+          pos.y,
+          wallThickness,
+          wallLength,
+          {
+            isStatic: true,
+            render: { visible: false },
+            restitution: 0.3,
+            friction: 0.8,
+          }
+        )
+      );
+      // Top wall (outer edge) - blocks exit upward
+      pocketWalls.push(
+        Matter.Bodies.rectangle(
+          pos.x,
+          pos.y - POCKET_RADIUS - wallThickness / 2,
+          wallLength,
+          wallThickness,
+          {
+            isStatic: true,
+            render: { visible: false },
+            restitution: 0.3,
+            friction: 0.8,
+          }
+        )
+      );
+    } else if (index === 2) {
+      // Bottom-left corner pocket
+      // Left wall (outer edge) - blocks exit to left
+      pocketWalls.push(
+        Matter.Bodies.rectangle(
+          pos.x - POCKET_RADIUS - wallThickness / 2,
+          pos.y,
+          wallThickness,
+          wallLength,
+          {
+            isStatic: true,
+            render: { visible: false },
+            restitution: 0.3,
+            friction: 0.8,
+          }
+        )
+      );
+      // Bottom wall (outer edge) - blocks exit downward
+      pocketWalls.push(
+        Matter.Bodies.rectangle(
+          pos.x,
+          pos.y + POCKET_RADIUS + wallThickness / 2,
+          wallLength,
+          wallThickness,
+          {
+            isStatic: true,
+            render: { visible: false },
+            restitution: 0.3,
+            friction: 0.8,
+          }
+        )
+      );
+    } else if (index === 3) {
+      // Bottom-right corner pocket
+      // Right wall (outer edge) - blocks exit to right
+      pocketWalls.push(
+        Matter.Bodies.rectangle(
+          pos.x + POCKET_RADIUS + wallThickness / 2,
+          pos.y,
+          wallThickness,
+          wallLength,
+          {
+            isStatic: true,
+            render: { visible: false },
+            restitution: 0.3,
+            friction: 0.8,
+          }
+        )
+      );
+      // Bottom wall (outer edge) - blocks exit downward
+      pocketWalls.push(
+        Matter.Bodies.rectangle(
+          pos.x,
+          pos.y + POCKET_RADIUS + wallThickness / 2,
+          wallLength,
+          wallThickness,
+          {
+            isStatic: true,
+            render: { visible: false },
+            restitution: 0.3,
+            friction: 0.8,
+          }
+        )
+      );
+    }
+  });
+
+  return {
+    walls: [...boardWalls, ...boundaryWalls, ...pocketWalls],
+    pockets,
+    pocketSensors,
+    pocketWalls,
+    POCKET_RADIUS,
+  };
 
   return {
     walls: [...boardWalls, ...boundaryWalls],
