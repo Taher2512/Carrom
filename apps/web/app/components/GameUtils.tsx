@@ -115,8 +115,8 @@ export const calculateStrikerVelocity = (
   if (distance <= 10) return { x: 0, y: 0 };
 
   // Calculate velocity (opposite to drag direction) - much more powerful
-  const maxPower = 100; // Increased power
-  const powerMultiplier = distance / 30; // More sensitive to drag distance
+  const maxPower = 75; // Increased power
+  const powerMultiplier = distance / 35; // More sensitive to drag distance
   const power = Math.min(powerMultiplier, maxPower);
   const velocityX = -(dx / distance) * power * 4.5;
   const velocityY = -(dy / distance) * power * 4.5;

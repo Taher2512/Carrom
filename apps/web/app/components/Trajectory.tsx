@@ -57,7 +57,7 @@ export const drawTrajectory = ({
       ctx.strokeRect(10, 10, 200, 20);
 
       // Power text
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = "#000";
       ctx.font = "14px Arial";
       ctx.fillText(`Power: ${Math.floor(power * 100)}%`, 220, 25);
     }

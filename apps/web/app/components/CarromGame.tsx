@@ -19,7 +19,11 @@ import { io } from "socket.io-client";
 let socket: any;
 let ctx: any;
 
-const CarromGame = () => {
+interface CarromGameProps {
+  playerName?: string;
+}
+
+const CarromGame = ({ playerName = "Player" }: CarromGameProps) => {
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
@@ -1032,7 +1036,11 @@ const CarromGame = () => {
     <div className="flex items-start justify-center gap-6 p-4">
       {/* Score Display - Left of the board */}
       <div className="mt-8">
-        <ScoreDisplay gameScore={gameScore} />
+        <ScoreDisplay
+          gameScore={gameScore}
+          player1Name={playerName}
+          player2Name="Opponent"
+        />
 
         {/* Host/Client Status */}
         <div className="mt-4 p-3 bg-gray-100 rounded-lg">

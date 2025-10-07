@@ -114,7 +114,17 @@ export const getPointsForCoin = (
   }
 };
 
-export const ScoreDisplay = ({ gameScore }: { gameScore: GameScore }) => {
+interface ScoreDisplayProps {
+  gameScore: GameScore;
+  player1Name?: string;
+  player2Name?: string;
+}
+
+export const ScoreDisplay = ({
+  gameScore,
+  player1Name = "Player 1",
+  player2Name = "Player 2",
+}: ScoreDisplayProps) => {
   const { player1, player2, currentWinner, gameWon } = gameScore;
 
   return (
@@ -133,7 +143,7 @@ export const ScoreDisplay = ({ gameScore }: { gameScore: GameScore }) => {
 
       {/* Player 1 Score */}
       <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-        <h4 className="font-semibold text-blue-800 mb-2">Player 1</h4>
+        <h4 className="font-semibold text-blue-800 mb-2">{player1Name}</h4>
         <div className="space-y-1 text-sm">
           <div className="flex justify-between items-center">
             <span className="flex items-center gap-2 text-black">
@@ -171,7 +181,7 @@ export const ScoreDisplay = ({ gameScore }: { gameScore: GameScore }) => {
 
       {/* Player 2 Score */}
       <div className="p-3 bg-red-50 rounded-lg border border-red-200">
-        <h4 className="font-semibold text-red-800 mb-2">Player 2</h4>
+        <h4 className="font-semibold text-red-800 mb-2">{player2Name}</h4>
         <div className="space-y-1 text-sm">
           <div className="flex justify-between items-center">
             <span className="flex items-center gap-2 text-black">
